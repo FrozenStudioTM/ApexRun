@@ -824,7 +824,8 @@ document.querySelectorAll('.chips').forEach(g=>{
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&(state==='racing'||state==='countdown')&&!paused)togglePause();});
 
 /* ---- on-screen steering wheel + control mode (saved between visits) ---- */
-const wheel={el:$('wheel'),ang:0,active:false,id:null,start:0,base:0,cx:0,cy:0,_t:''};
+const WHEEL_MAX=540; // градусов в каждую сторону (540 = 1,5 оборота)
+const wheel={el:$('wheel'),ang:0,active:false,id:null,last:0,cx:0,cy:0,_t:''};
 let ctrlMode='wheel';
 try{const cv=localStorage.getItem('apexrun_ctrl');if(cv==='arrows'||cv==='wheel')ctrlMode=cv;}catch(e){}
 function setCtrl(m){
@@ -838,19 +839,20 @@ function wheelAngle(e){return Math.atan2(e.clientY-wheel.cy,e.clientX-wheel.cx)*
 wheel.el.addEventListener('pointerdown',e=>{
   e.preventDefault();
   const r=wheel.el.getBoundingClientRect();wheel.cx=r.left+r.width/2;wheel.cy=r.top+r.height/2;
-  wheel.active=true;wheel.id=e.pointerId;wheel.start=wheelAngle(e);wheel.base=wheel.ang;
+  wheel.active=true;wheel.id=e.pointerId;wheel.last=wheelAngle(e);
   try{wheel.el.setPointerCapture(e.pointerId);}catch(_){}
 });
 wheel.el.addEventListener('pointermove',e=>{
   if(!wheel.active||e.pointerId!==wheel.id)return;
-  let d=wheelAngle(e)-wheel.start;while(d>180)d-=360;while(d<-180)d+=360;
-  wheel.ang=clamp(wheel.base+d,-110,110);
+  if(Math.hypot(e.clientX-wheel.cx,e.clientY-wheel.cy)<20)return;
+  const a=wheelAngle(e);let d=a-wheel.last;while(d>180)d-=360;while(d<-180)d+=360;wheel.last=a;
+  wheel.ang=clamp(wheel.ang+d,-WHEEL_MAX,WHEEL_MAX);
 });
 const wheelEnd=e=>{if(e.pointerId===wheel.id)wheel.active=false;};
 wheel.el.addEventListener('pointerup',wheelEnd);wheel.el.addEventListener('pointercancel',wheelEnd);wheel.el.addEventListener('lostpointercapture',wheelEnd);
 function wheelTick(dt){
-  if(!wheel.active&&wheel.ang!==0){wheel.ang=Math.sign(wheel.ang)*Math.max(0,Math.abs(wheel.ang)-620*dt);}
-  touch.steerA=ctrlMode==='wheel'?-Math.sign(wheel.ang)*Math.pow(clamp(Math.abs(wheel.ang)/100,0,1),1.25):0;
+  if(!wheel.active&&wheel.ang!==0){wheel.ang=Math.sign(wheel.ang)*Math.max(0,Math.abs(wheel.ang)-900*dt);}
+  touch.steerA=ctrlMode==='wheel'?-Math.sign(wheel.ang)*Math.pow(clamp(Math.abs(wheel.ang)/WHEEL_MAX,0,1),1.25):0;
   const t='rotate('+wheel.ang.toFixed(1)+'deg)';
   if(wheel._t!==t){wheel.el.firstElementChild.style.transform=t;wheel._t=t;}
 }

@@ -510,7 +510,7 @@ const pcar=makeCar(0xe3262e);scene.add(pcar.root);
 let pDist=0,lapStart=0,lapTimes=[],finishRank=0,finishTime=0,newRecord=false,impactV=0;
 
 const GT=[24,40,55,68,80,92];
-const ENG={mass:1250,a:1.15,b:1.45,Iz:1900,h:0.5,g:9.81};
+const ENG={mass:1250,a:1.15,b:1.45,Iz:1900,h:0.38,g:9.81};
 
 function stepPlayer(c,h,ctl){
   query(c.x,c.z,c.hint,90);c.hint=Q.i;c.i=Q.i;c.lat=Q.lat;c.along=Q.along;
@@ -558,6 +558,7 @@ function stepPlayer(c,h,ctl){
     const ar=c.slipRs,ex=ar-clamp(ar,-0.12,0.12);
     delta+=clamp(ex*1.1,-0.25,0.25);
     thr*=clamp(1-(Math.abs(ar)-0.13)*5,0.35,1);
+    thr*=1-0.5*Math.abs(c.steer);
   }
   if(settings.assist){
     const sl=0.16-0.07*clamp((speed-25)/45,0,1)+0.6*(1-clamp(speed/10,0,1)),bf=sgn*Math.atan2(vy+a*c.w,D);

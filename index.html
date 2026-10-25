@@ -549,15 +549,19 @@ function stepPlayer(c,h,ctl){
   const Fzr=Math.max(1500,mass*g*a/Lw+mass*c.axs*hcg/Lw+down);
   // steering
   const tgt=ctl.steer;
-  const rate=tgt===0?(5/(1+speed/50)):((tgt*c.steer<0)?7:3.2/(1+speed/30));
+  const rate=tgt===0?(6/(1+speed/50)):((tgt*c.steer<0)?8:4.5/(1+speed/25));
   c.steer+=clamp(tgt-c.steer,-rate*h,rate*h);
-  const dmax=Math.max(0.065,0.55/(1+Math.pow(speed/20,1.6)));
+  const dmax=settings.assist?(0.17+0.35/(1+Math.pow(speed/45,2))):Math.max(0.065,0.55/(1+Math.pow(speed/20,1.6)));
   let delta=c.steer*dmax;
   let thr=ctl.gas;const brk=ctl.brake;
   if(settings.assist&&av>6){
     const ar=c.slipRs,ex=ar-clamp(ar,-0.12,0.12);
     delta+=clamp(ex*1.1,-0.25,0.25);
     thr*=clamp(1-(Math.abs(ar)-0.13)*5,0.35,1);
+  }
+  if(settings.assist){
+    const sl=0.16-0.07*clamp((speed-25)/45,0,1)+0.6*(1-clamp(speed/10,0,1)),bf=sgn*Math.atan2(vy+a*c.w,D);
+    delta=clamp(delta,bf-sl,bf+sl);
   }
   delta=clamp(delta,-0.6,0.6);c.delta=delta;
   // pedals
@@ -583,11 +587,11 @@ function stepPlayer(c,h,ctl){
   c.slipRs=aR;c.slipFs=aF;
   const Bt=12,Ct=1.4;
   const FyfW=-capF*Math.sin(Ct*Math.atan(Bt*aF))*Math.sqrt(Math.max(0.05,1-0.8*rF*rF))*lowF;
-  const FyrW=-capR*Math.sin(Ct*Math.atan(Bt*aR))*Math.sqrt(Math.max(0.05,1-0.8*rR*rR))*lowF;
+  const FyrW=-capR*1.1*Math.sin(Ct*Math.atan(Bt*aR))*Math.sqrt(Math.max(0.05,1-0.8*rR*rR))*lowF;
   const cd=Math.cos(delta),sd=Math.sin(delta);
   const Fxfc=Fxf*cd-FyfW*sd,Fyfc=Fxf*sd+FyfW*cd;
-  const rr=(0.015+0.06*t)*mass*g*clamp(vx/0.8,-1,1);
-  const Fx=Fxfc+Fxr-0.8*vx*speed-rr;
+  const rr=(0.015+0.1*t)*mass*g*clamp(vx/0.8,-1,1);
+  const Fx=Fxfc+Fxr-0.8*vx*speed-rr-t*mass*0.05*vx;
   const Fy=Fyfc+FyrW-mass*vy*6*lowD;
   const Mz=a*Fyfc-b*FyrW-700*c.w-Iz*5*lowD*c.w;
   const ax=Fx/mass,ay=Fy/mass;
@@ -618,11 +622,16 @@ function updateBots(h){
     let target=lerp(b.prof[i],b.prof[i1],t);
     const gap=pDist-b.s;
     if(!b.finished){if(gap>220)target*=1.04;else if(gap<-220)target*=0.95;}else target=Math.min(target,28);
+    let ahead=null,sdA=1e9;
+    for(const o of bots){if(o===b)continue;const d=o.s-b.s;if(d>0&&d<sdA&&Math.abs(o.off-b.off)<3.4){sdA=d;ahead=o;}}
+    if(ahead&&sdA<16)target=Math.min(target,Math.max(0,ahead.v+(sdA-8)*1.2));
     const acc=clamp(11*(1-Math.pow(b.v/85,2)),1,11);
     if(b.v<target)b.v=Math.min(target,b.v+acc*h);else b.v=Math.max(target,b.v-14*h);
     b.s+=b.v*h;
+    if(ahead&&ahead.s-b.s<5.2){b.s=ahead.s-5.2;b.v=Math.min(b.v,ahead.v);}
     if(!b.finished&&b.s>=lapsL){b.finished=true;b.finT=raceTime;}
     let offT=b.lane;
+    if(ahead&&sdA<26)offT=clamp(ahead.off+(ahead.off>0?-4:4),-6.5,6.5);
     const g2=pDist-b.s;
     if(g2>-6&&g2<18){const rel=P.lat-b.off;if(Math.abs(rel)<3.8)offT=clamp(P.lat+(rel>=0?-4.2:4.2),-6.5,6.5);}
     const dOff=clamp(offT-b.off,-2.5*h,2.5*h);

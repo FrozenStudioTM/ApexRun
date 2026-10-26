@@ -274,11 +274,12 @@ scene.add(new THREE.HemisphereLight(0xcfe4ff,0x4a6a3a,0.95));
 const sun=new THREE.DirectionalLight(0xfff1d8,0.85);sun.position.set(300,500,160);scene.add(sun);
 
 /* ================= Track ================= */
-const SCALE=1.3;
-const RAW=[[0,0],[150,-10],[300,0],[420,60],[460,170],[400,270],[290,300],[200,260],[150,330],[170,440],[100,520],[-30,520],[-110,440],[-100,330],[-190,270],[-250,170],[-200,70],[-100,20]];
-const curve=new THREE.CatmullRomCurve3(RAW.map(p=>new THREE.Vector3(p[0]*SCALE,0,p[1]*SCALE)),true,'centripetal');
+const SCALE=2.8;   // метров на пиксель эскиза
+function chaikin(pts,it){for(let k=0;k<it;k++){const o=[];for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];o.push([a[0]*.75+b[0]*.25,a[1]*.75+b[1]*.25],[a[0]*.25+b[0]*.75,a[1]*.25+b[1]*.75]);}pts=o;}return pts;}
+const RAW=[[305,325],[299,270],[295,215],[294,170],[303,138],[325,113],[355,98],[400,90],[450,89],[500,89],[508,104],[490,128],[462,152],[447,185],[448,214],[478,216],[510,209],[556,209],[570,228],[574,275],[574,340],[576,410],[565,437],[548,437],[528,428],[514,408],[505,391],[497,383],[489,381],[482,387],[478,401],[474,420],[467,441],[459,464],[430,461],[390,453],[350,448],[333,422],[317,388],[308,358]];
+const curve=new THREE.CatmullRomCurve3(chaikin(RAW.map(p=>[(p[0]-305)*SCALE,(p[1]-325)*SCALE]),2).map(p=>new THREE.Vector3(p[0],0,p[1])),true,'centripetal');
 curve.arcLengthDivisions=4000;
-const N=720;
+const N=900;
 const L=curve.getLength();
 const ds=L/N;
 const spt=curve.getSpacedPoints(N);
@@ -302,6 +303,22 @@ for(let i=0;i<N;i++){minX=Math.min(minX,px[i]);maxX=Math.max(maxX,px[i]);minZ=Ma
 const cx0=(minX+maxX)/2,cz0=(minZ+maxZ)/2;
 
 const HALF=16.0, CURB=2.0, WALL=24.0, WALLC=23.0;
+// стены подходят ближе на внутренней стороне узких поворотов, чтобы не смыкались
+const wallL=new Float32Array(N).fill(WALL),wallR=new Float32Array(N).fill(WALL);
+{
+  const innerL=new Float32Array(N).fill(WALL),innerR=new Float32Array(N).fill(WALL);
+  for(let i=0;i<N;i++){
+    const k=wrapPi(psiT[(i+3)%N]-psiT[(i-3+N)%N])/(6*ds);
+    if(Math.abs(k)>1e-5){const lim=clamp(1/Math.abs(k)-3,HALF+CURB+1.5,WALL);if(k>0)innerL[i]=lim;else innerR[i]=lim;}
+  }
+  const smooth=a=>{
+    const m=new Float32Array(N),o=new Float32Array(N);
+    for(let i=0;i<N;i++){let v=a[i];for(let k=-8;k<=8;k++)v=Math.min(v,a[(i+k+N)%N]);m[i]=v;}
+    for(let i=0;i<N;i++){let s=0;for(let k=-8;k<=8;k++)s+=m[(i+k+N)%N];o[i]=s/17;}
+    return o;
+  };
+  wallL.set(smooth(innerL));wallR.set(smooth(innerR));
+}
 
 const Q={i:0,lat:0,along:0};
 function query(x,z,hint,W){
@@ -375,9 +392,9 @@ function flatStrip(o1,o2,y,rep,mat){
 }
 function wallStrip(side,tiles,mat){
   const pos=new Float32Array((N+1)*6),uv=new Float32Array((N+1)*4),idx=[];
-  const o=side*WALL;
+  
   for(let k=0;k<=N;k++){
-    const i=k%N,x=px[i]+lx[i]*o,z=pz[i]+lz[i]*o;
+    const i=k%N,o=side>0?wallL[i]:-wallR[i],x=px[i]+lx[i]*o,z=pz[i]+lz[i]*o;
     pos[k*6]=x;pos[k*6+1]=0;pos[k*6+2]=z;pos[k*6+3]=x;pos[k*6+4]=1.1;pos[k*6+5]=z;
     const u=k/N*tiles;uv[k*4]=u;uv[k*4+1]=0;uv[k*4+2]=u;uv[k*4+3]=1;
   }
@@ -523,8 +540,9 @@ function stepPlayer(c,h,ctl){
   query(c.x,c.z,c.hint,90);c.hint=Q.i;c.i=Q.i;c.lat=Q.lat;c.along=Q.along;
   const ad=Math.abs(Q.lat);
   // wall contact
-  if(ad>WALLC){
-    const sg=Q.lat>0?1:-1,pen=ad-WALLC,nx=lx[Q.i]*sg,nz=lz[Q.i]*sg;
+  const wlim=(Q.lat>0?wallL[Q.i]:wallR[Q.i])-1;
+  if(ad>wlim){
+    const sg=Q.lat>0?1:-1,pen=ad-wlim,nx=lx[Q.i]*sg,nz=lz[Q.i]*sg;
     c.x-=nx*pen;c.z-=nz*pen;
     const vn=c.Vx*nx+c.Vz*nz;
     if(vn>0){

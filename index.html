@@ -670,7 +670,7 @@ function stepPlayer(c,h,ctl){
 
 /* ================= Bots ================= */
 const botColors=[0x2f6bff,0xffc21a,0x1fbf75,0xa24dff,0xff7b1c];
-const bots=botColors.map((col,idx)=>{const car=makeCar(col);scene.add(car.root);return{car,idx,s:0,v:0,off:0,lane:0,offRate:0,skill:.9,prof:null,x:0,z:0,psi:0,finished:false,finT:0,wheelAng:0};});
+const bots=botColors.map((col,idx)=>{const car=makeCar(col);scene.add(car.root);return{car,idx,s:0,v:0,off:0,lane:0,offRate:0,offV:0,yawDev:0,yawV:0,loose:0,pfx:1,pfz:0,plx:0,plz:-1,skill:.9,prof:null,x:0,z:0,psi:0,finished:false,finT:0,wheelAng:0};});
 function setBotModel(b,m){
   if(b.car.model===m)return;
   scene.remove(b.car.root);b.car=makeCar(botColors[b.idx],m);scene.add(b.car.root);
@@ -696,7 +696,8 @@ function updateBots(h){
     for(const o of bots){if(o===b)continue;const d=o.s-b.s;if(d>0&&d<sdA&&Math.abs(o.off-b.off)<3.4){sdA=d;ahead=o;}}
     if(ahead&&sdA<16)target=Math.min(target,Math.max(0,ahead.v+(sdA-8)*1.2));
     const acc=clamp(11*(1-Math.pow(b.v/85,2)),1,11);
-    if(b.v<target)b.v=Math.min(target,b.v+acc*h);else b.v=Math.max(target,b.v-14*h);
+    if(b.loose>0){b.loose-=h;b.v=Math.max(0,b.v-(5+Math.abs(b.yawDev)*8)*h);}
+    else if(b.v<target)b.v=Math.min(target,b.v+acc*h);else b.v=Math.max(target,b.v-14*h);
     b.s+=b.v*h;
     if(ahead&&ahead.s-b.s<5.2){b.s=ahead.s-5.2;b.v=Math.min(b.v,ahead.v);}
     if(!b.finished&&b.s>=lapsL){b.finished=true;b.finT=raceTime;}
@@ -704,16 +705,22 @@ function updateBots(h){
     if(ahead&&sdA<26)offT=clamp(ahead.off+(ahead.off>0?-4:4),-13,13);
     const g2=pDist-b.s;
     if(g2>-6&&g2<18){const rel=P.lat-b.off;if(Math.abs(rel)<3.8)offT=clamp(P.lat+(rel>=0?-4.2:4.2),-13,13);}
-    const dOff=clamp(offT-b.off,-2.5*h,2.5*h);
-    b.off+=dOff;b.offRate=lerp(b.offRate,dOff/h,0.05);
+    const vdes=b.loose>0?0:clamp((offT-b.off)*1.5,-2.5,2.5);
+    if(b.loose>0){b.offV*=1-(Math.abs(b.off)>18?2.5:0.35)*h;}else b.offV+=clamp(vdes-b.offV,-6*h,6*h);
+    b.off+=b.offV*h;
+    {const wl=(b.off>0?wallL[i]:wallR[i])-2.2;if(Math.abs(b.off)>wl){b.off=Math.sign(b.off)*wl;if(b.offV*b.off>0){const hit=Math.abs(b.offV);b.offV*=-0.3;if(hit>2){b.v*=0.8;b.yawV+=Math.sign(b.off)*hit*0.5;b.loose=Math.max(b.loose,0.8);}}}}
+    b.offRate=b.offV;
+    {const k=b.loose>0?3:25,cc=b.loose>0?0.5:6;b.yawV+=(-k*b.yawDev-cc*b.yawV)*h;b.yawDev+=b.yawV*h;b.yawDev=wrapPi(b.yawDev);}
+    if(Math.abs(b.yawDev)>0.3)b.v=Math.max(0,b.v-Math.abs(b.yawDev)*10*h);
     b.wheelAng-=b.v/0.34*h;
   }
 }
 function botPose(b){
-  trackAt(b.s,b.off);b.x=TA.x;b.z=TA.z;b.psi=TA.psi+Math.atan2(b.offRate,Math.max(b.v,6));
+  trackAt(b.s,b.off);b.x=TA.x;b.z=TA.z;b.psi=TA.psi+Math.atan2(b.offRate,Math.max(b.v,6))+b.yawDev;
+  b.pfx=Math.cos(TA.psi);b.pfz=-Math.sin(TA.psi);b.plx=-Math.sin(TA.psi);b.plz=-Math.cos(TA.psi);
 }
 const OFFS=[-1.5,0,1.5];
-function collideBots(){
+function collideBotsOld(){
   const c=P,fx=Math.cos(c.psi),fz=-Math.sin(c.psi);
   for(const b of bots){
     botPose(b);
@@ -738,6 +745,39 @@ function collideBots(){
 }
 
 /* ================= Race control ================= */
+function collideBots(){
+  const c=P,fx=Math.cos(c.psi),fz=-Math.sin(c.psi),lxc=-Math.sin(c.psi),lzc=-Math.cos(c.psi);
+  for(const b of bots){
+    botPose(b);
+    const dxm=c.x-b.x,dzm=c.z-b.z;if(dxm*dxm+dzm*dzm>40)continue;
+    const bfx=Math.cos(b.psi),bfz=-Math.sin(b.psi),blx=-Math.sin(b.psi),blz=-Math.cos(b.psi);
+    const bvx=b.pfx*b.v+b.plx*b.offV,bvz=b.pfz*b.v+b.plz*b.offV;
+    for(const po_ of OFFS)for(const bo of OFFS){
+      const ax_=c.x+fx*po_,az_=c.z+fz*po_,bx_=b.x+bfx*bo,bz_=b.z+bfz*bo;
+      let dx=ax_-bx_,dz=az_-bz_;const d2=dx*dx+dz*dz,R=2.1;
+      if(d2>=R*R||d2<1e-6)continue;
+      const d=Math.sqrt(d2);dx/=d;dz/=d;const pen=R-d;
+      c.x+=dx*pen*0.5;c.z+=dz*pen*0.5;
+      b.s+=(-dx*pen*0.5)*b.pfx+(-dz*pen*0.5)*b.pfz;
+      b.off+=(-dx*pen*0.5)*b.plx+(-dz*pen*0.5)*b.plz;
+      const rvx=c.Vx-bvx,rvz=c.Vz-bvz,vn=rvx*dx+rvz*dz;
+      if(vn<0){
+        const e=0.45,mp=1250,mb=800,Jt=-(1+e)*vn/(1/mp+1/mb),j=Jt/mp,jbv=Jt/mb;
+        c.Vx+=dx*j;c.Vz+=dz*j;
+        const jlp=(dx*j)*lxc+(dz*j)*lzc;
+        c.w=clamp(c.w+po_*jlp*(ENG.mass/ENG.Iz)*0.7,-4,4);
+        const bdx=-dx*jbv,bdz=-dz*jbv;
+        b.v=Math.max(0,b.v+bdx*b.pfx+bdz*b.pfz);
+        b.offV=clamp(b.offV+bdx*b.plx+bdz*b.plz,-14,14);
+        const jlb=bdx*blx+bdz*blz;
+        const bmag=Math.hypot(bdx,bdz)+1e-6,lfrac=Math.abs(bdx*b.plx+bdz*b.plz)/bmag;
+        b.yawV=clamp(b.yawV+bo*jlb*(ENG.mass/ENG.Iz)*1.8,-7,7);
+        {const lo=(-vn-3)*0.25*(0.35+0.65*lfrac);if(lo>0.25)b.loose=Math.max(b.loose,Math.min(3.5,lo));}
+        if(-vn>impactV)impactV=-vn;
+      }
+    }
+  }
+}
 const PSLOT=4,BOT_SLOTS=[0,1,2,3,5];
 function resetRace(){
   clearSkids();
@@ -752,7 +792,7 @@ function resetRace(){
     const k=BOT_SLOTS[j];
     b.s=-(6+9*Math.floor(k/2));b.off=(k%2?6:-6);b.lane=(Math.random()*16)-8;b.offRate=0;
     b.skill=clamp(settings.skill+(Math.random()-.5)*0.06,0.7,1.03);b.prof=buildProfile(b.skill);
-    b.v=0;b.finished=false;b.finT=0;setBotModel(b,(Math.random()*3)|0);botPose(b);
+    b.offV=0;b.yawDev=0;b.yawV=0;b.loose=0;b.v=0;b.finished=false;b.finT=0;setBotModel(b,(Math.random()*3)|0);botPose(b);
   });
   placeVisuals(0);
   camInit=false;
@@ -1015,6 +1055,7 @@ function placeVisuals(dt){
   for(const b of bots){
     botPose(b);
     const bm=b.car;bm.root.position.set(b.x,0,b.z);bm.root.rotation.y=b.psi;
+    bm.body.rotation.x=b.loose>0?clamp(b.yawV*0.05,-0.15,0.15):0;
     for(const w of bm.wheels)w.spin.rotation.z=b.wheelAng;
   }
 }
